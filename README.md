@@ -43,6 +43,7 @@ Analyzes token data like liquidity, volume, and trade patterns to detect potenti
 ├── package.json
 └── pnpm-lock.yaml
 
+```
 ---
 
 ## 🛠️ Setup & Run Locally
@@ -53,6 +54,7 @@ Analyzes token data like liquidity, volume, and trade patterns to detect potenti
 git clone https://github.com/yourusername/defisniper-agent.git
 cd defisniper-agent
 
+```
 ---
 
 2. Install Dependencies
@@ -60,6 +62,7 @@ cd defisniper-agent
 ```bash 
 pnpm install 
 
+```
 ---
 
 3. Configure Environment 
@@ -67,6 +70,7 @@ pnpm install
 ```bash
 cp .env.example .env
 
+```
 ---
 
 4. Pull Ollama Model
@@ -75,6 +79,7 @@ cp .env.example .env
 ollama serve
 ollama pull qwen2.5:1.5b
 
+```
 ---
 
 5. Run Agent
@@ -82,35 +87,37 @@ ollama pull qwen2.5:1.5b
 ```bash
 pnpm run dev
 
+```
 ---
 
-Visit: http://localhost:8080
+Visit: `http://localhost:8080`
 
 ---
 
 ## 🐳 Docker
 
-Build Docker Image
+### Build Docker Image
 
 ```bash 
 docker build -t signet939/defisniper:latest .
 
+```
 ---
 
-Run Docker Image
+### Run Docker Image
 
 ```bash
 docker run -p 8080:8080 --env-file .env.docker signet939/defisniper:latest
 
+```
 ---
-
 
 ## 📡 Nosana Deployment
 
 Nosana Job File
-nosana_mastra.json
+`nosana_mastra.json`
 
-```bash
+```json
 
 {
   "ops": [
@@ -141,13 +148,16 @@ nosana_mastra.json
   "version": "0.1"
 }
 
+```
+
 ---
 
-Deploy via CLI
+### Deploy via CLI
 
 ```bash
 nosana job post --file nosana_mastra.json --market nvidia-3060 --timeout 30
 
+```
 ---
 
 
