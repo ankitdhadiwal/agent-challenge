@@ -1,7 +1,8 @@
 import { Mastra } from "@mastra/core/mastra";
 import { PinoLogger } from "@mastra/loggers";
-import { defiWorkflow } from "./agents/defi-sniper-agent/defiWorkflow";
-import { defiSniperAgent } from "./agents/defi-sniper-agent/defi-agent";
+
+import { defiWorkflow } from "./agents/defiSniperAgent/defiWorkflow";
+import { defiSniperAgent } from "./agents/defiSniperAgent/defiagent";
 
 export const mastra = new Mastra({
 	workflows: { defiWorkflow }, 
@@ -15,3 +16,5 @@ export const mastra = new Mastra({
 		timeout: 10000,
 	},
 });
+
+

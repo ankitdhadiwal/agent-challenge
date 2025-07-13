@@ -5,7 +5,7 @@ import {checkRugRiskTool} from "./tools/checkRugRisk";
 
 
 // Define Agent Name
-const name = "Defi Sniper Agent";
+const name = "DefiSniperAgent";
 
 // Define instructions for the agent
 // TODO: Add link here for recommendations on how to properly define instructions for an agent.
