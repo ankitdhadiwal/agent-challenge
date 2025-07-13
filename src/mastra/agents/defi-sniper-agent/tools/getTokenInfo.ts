@@ -1,120 +1,240 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 
-// TEST ADDRESSES (these should have active pairs):
-// WETH (Wrapped Ether): 0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2
-// USDC: 0xa0b86a33e6fb06c29292f4a4f13af86d7b6a1b9d (if this doesn't work, try 0xA0b86a33E6FB06c29292F4a4f13af86d7B6a1b9d)
-// WETH/USDC Pair: 0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640
+// CORRECT DEXSCREENER API ENDPOINTS (Based on official docs):
+// 1. Get pairs by chain and address: https://api.dexscreener.com/latest/dex/pairs/{chainId}/{pairAddress}
+// 2. Get token pairs: https://api.dexscreener.com/latest/dex/tokens/{tokenAddress}
+// 3. Search pairs: https://api.dexscreener.com/latest/dex/search/?q={query}
 
-const getTokenInfo = async (input: string) => {
-  // Clean up input
-  const cleanedInput = input.trim().toLowerCase();
-  
-  let url: string;
-  
-  // Check if input looks like a token address (starts with 0x for Ethereum)
-  if (cleanedInput.startsWith('0x')) {
-    // Use tokens endpoint for token addresses
-    url = `https://api.dexscreener.com/latest/dex/tokens/${cleanedInput}`;
-  } else {
-    // Assume it's a pair address and use pairs endpoint
-    url = `https://api.dexscreener.com/latest/dex/pairs/${cleanedInput}`;
+// SUPPORTED CHAINS (commonly used):
+const SUPPORTED_CHAINS: Record<string, string> = {
+  'ethereum': 'ethereum',
+  'eth': 'ethereum',
+  'solana': 'solana',
+  'sol': 'solana',
+  'bsc': 'bsc',
+  'bnb': 'bsc',
+  'polygon': 'polygon',
+  'matic': 'polygon',
+  'arbitrum': 'arbitrum',
+  'arb': 'arbitrum',
+  'optimism': 'optimism',
+  'op': 'optimism',
+  'avalanche': 'avalanche',
+  'avax': 'avalanche',
+  'fantom': 'fantom',
+  'ftm': 'fantom',
+  'cronos': 'cronos',
+  'cro': 'cronos',
+  'harmony': 'harmony',
+  'one': 'harmony',
+  'moonbeam': 'moonbeam',
+  'glmr': 'moonbeam',
+  'moonriver': 'moonriver',
+  'movr': 'moonriver',
+  'base': 'base'
+};
+
+// Function to detect chain from address format
+const detectChain = (address: string): string => {
+  // Ethereum-like chains (42 chars with 0x)
+  if (address.startsWith('0x') && address.length === 42) {
+    return 'ethereum'; // Default to ethereum for 0x addresses
   }
-
-  console.log(`Fetching from URL: ${url}`);
   
+  // Solana addresses (32-44 chars, base58)
+  if (address.length >= 32 && address.length <= 44 && !address.startsWith('0x')) {
+    return 'solana';
+  }
+  
+  return 'ethereum'; // Default fallback
+};
+
+// Function to normalize chain name
+const normalizeChain = (chain: string): string => {
+  return SUPPORTED_CHAINS[chain.toLowerCase()] || chain.toLowerCase();
+};
+
+const getTokenInfo = async (input: string, chainHint?: string) => {
+  const cleanedInput = input.trim();
+  
+  // Try to detect the chain from the address if not provided
+  let detectedChain = chainHint ? normalizeChain(chainHint) : detectChain(cleanedInput);
+  
+  // First, try to get pair info directly (assuming it's a pair address)
+  if (chainHint || cleanedInput.startsWith('0x')) {
+    try {
+      const pairUrl = `https://api.dexscreener.com/latest/dex/pairs/${detectedChain}/${cleanedInput}`;
+      console.log(`Trying pair URL: ${pairUrl}`);
+      
+      const pairRes = await fetch(pairUrl);
+      if (pairRes.ok) {
+        const pairData = await pairRes.json();
+        console.log('Pair API Response:', JSON.stringify(pairData, null, 2));
+        
+        if (pairData.pair) {
+          return formatPairData(pairData.pair);
+        }
+      }
+    } catch (error) {
+      console.log('Pair lookup failed, trying token lookup...');
+    }
+  }
+  
+  // If pair lookup failed, try token lookup
   try {
-    const res = await fetch(url);
+    const tokenUrl = `https://api.dexscreener.com/latest/dex/tokens/${cleanedInput}`;
+    console.log(`Trying token URL: ${tokenUrl}`);
     
-    if (!res.ok) {
-      throw new Error(`DexScreener API responded with status ${res.status} ${res.statusText}`);
+    const tokenRes = await fetch(tokenUrl);
+    
+    if (!tokenRes.ok) {
+      throw new Error(`DexScreener API responded with status ${tokenRes.status} ${tokenRes.statusText}`);
     }
-
-    const data = await res.json();
-    console.log('API Response:', JSON.stringify(data, null, 2));
-
-    // Handle different response structures
-    let pairs;
-    if (data.pairs && Array.isArray(data.pairs)) {
-      pairs = data.pairs;
-    } else if (data.pair) {
-      pairs = [data.pair];
-    } else if (data.pairs === null) {
-      throw new Error(`No trading pairs found for this token address. The token might not have active liquidity pools or might not exist on tracked DEXes.`);
-    } else {
-      throw new Error("No pair data found in response");
+    
+    const tokenData = await tokenRes.json();
+    console.log('Token API Response:', JSON.stringify(tokenData, null, 2));
+    
+    if (!tokenData.pairs || tokenData.pairs.length === 0) {
+      throw new Error(`No trading pairs found for address: ${cleanedInput}`);
     }
-
-    if (!pairs || pairs.length === 0) {
-      throw new Error("No active trading pairs found for the given input");
+    
+    // Filter by chain if specified
+    let pairs = tokenData.pairs;
+    if (chainHint) {
+      const normalizedChain = normalizeChain(chainHint);
+      pairs = pairs.filter((pair: any) => 
+        pair.chainId === normalizedChain || 
+        pair.chainId === chainHint.toLowerCase()
+      );
     }
-
-    // Use the first pair (or the one with highest liquidity)
-    const pair = pairs.sort((a: any, b: any) => 
+    
+    if (pairs.length === 0) {
+      throw new Error(`No pairs found for token on chain: ${chainHint || 'any'}`);
+    }
+    
+    // Use the pair with highest liquidity
+    const bestPair = pairs.sort((a: any, b: any) => 
       (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
     )[0];
-
-    if (!pair) {
-      throw new Error("No valid pair found");
-    }
-
-    const {
-      baseToken,
-      quoteToken,
-      priceUsd,
-      liquidity,
-      volume,
-      txns,
-      chainId,
-      dexId,
-      pairAddress
-    } = pair;
-
-    // Handle different volume structures
-    const volume24h = volume?.h24 || volume?.['24h'] || 0;
     
-    // Handle different transaction structures
-    const txns24h = txns?.h24 || txns?.['24h'] || { buys: 0, sells: 0 };
-
-    return {
-      summary: `
-🔍 Token Pair: ${baseToken?.symbol || 'Unknown'}/${quoteToken?.symbol || 'Unknown'}
-🏪 Exchange: ${dexId || 'Unknown'} on ${chainId || 'Unknown'}
-📍 Pair Address: ${pairAddress || 'Unknown'}
-💰 Price: $${priceUsd || '0'}
-💧 Liquidity: $${liquidity?.usd?.toLocaleString() || '0'}
-📈 24h Volume: $${typeof volume24h === 'number' ? volume24h.toLocaleString() : '0'}
-📊 24h Txns: Buys: ${txns24h.buys || 0}, Sells: ${txns24h.sells || 0}
-      `,
-      liquidityUsd: liquidity?.usd || 0,
-      buys: txns24h.buys || 0,
-      sells: txns24h.sells || 0,
-      volume24h: typeof volume24h === 'number' ? volume24h : 0,
-      chainId: chainId || 'unknown',
-      dexId: dexId || 'unknown',
-      pairAddress: pairAddress || 'unknown',
-      baseToken: {
-        address: baseToken?.address || '',
-        name: baseToken?.name || '',
-        symbol: baseToken?.symbol || ''
-      },
-      quoteToken: {
-        address: quoteToken?.address || '',
-        name: quoteToken?.name || '',
-        symbol: quoteToken?.symbol || ''
-      }
-    };
+    return formatPairData(bestPair);
+    
   } catch (error) {
-    console.error('Error fetching token info:', error);
-    throw error;
+    console.error('Token lookup failed:', error);
+    
+    // Final fallback: try search
+    try {
+      const searchUrl = `https://api.dexscreener.com/latest/dex/search/?q=${cleanedInput}`;
+      console.log(`Trying search URL: ${searchUrl}`);
+      
+      const searchRes = await fetch(searchUrl);
+      if (searchRes.ok) {
+        const searchData = await searchRes.json();
+        
+        if (searchData.pairs && searchData.pairs.length > 0) {
+          const bestPair = searchData.pairs[0];
+          return formatPairData(bestPair);
+        }
+      }
+    } catch (searchError) {
+      console.error('Search failed:', searchError);
+    }
+    
+    throw new Error(`Unable to find token/pair data for: ${cleanedInput}`);
   }
+};
+
+const formatPairData = (pair: any) => {
+  const {
+    baseToken,
+    quoteToken,
+    priceUsd,
+    liquidity,
+    volume,
+    txns,
+    chainId,
+    dexId,
+    pairAddress,
+    priceChange,
+    fdv,
+    marketCap,
+    pairCreatedAt,
+    url
+  } = pair;
+
+  // Handle different time period structures
+  const volume24h = volume?.h24 || volume?.['24h'] || 0;
+  const txns24h = txns?.h24 || txns?.['24h'] || { buys: 0, sells: 0 };
+  const priceChange24h = priceChange?.h24 || priceChange?.['24h'] || 0;
+
+  // Format creation date safely
+  const createdAt = pairCreatedAt ? new Date(pairCreatedAt * 1000).toLocaleDateString() : 'Unknown';
+
+  // Ensure all numeric values are valid numbers
+  const safeVolume24h = typeof volume24h === 'number' && !isNaN(volume24h) ? volume24h : 0;
+  const safeLiquidityUsd = typeof liquidity?.usd === 'number' && !isNaN(liquidity.usd) ? liquidity.usd : 0;
+  const safePriceChange24h = typeof priceChange24h === 'number' && !isNaN(priceChange24h) ? priceChange24h : 0;
+  const safeFdv = typeof fdv === 'number' && !isNaN(fdv) ? fdv : 0;
+  const safeMarketCap = typeof marketCap === 'number' && !isNaN(marketCap) ? marketCap : 0;
+  const safePairCreatedAt = typeof pairCreatedAt === 'number' && !isNaN(pairCreatedAt) ? pairCreatedAt : 0;
+
+  return {
+    summary: `
+🔍 **Token Pair**: ${baseToken?.symbol || 'Unknown'}/${quoteToken?.symbol || 'Unknown'}
+🌐 **Chain**: ${chainId || 'Unknown'}
+🏪 **Exchange**: ${dexId || 'Unknown'}
+📍 **Pair Address**: ${pairAddress || 'Unknown'}
+🔗 **DexScreener URL**: ${url || 'N/A'}
+
+💰 **Price**: ${priceUsd || '0'}
+📈 **24h Change**: ${safePriceChange24h > 0 ? '+' : ''}${safePriceChange24h.toFixed(2)}%
+💧 **Liquidity**: ${safeLiquidityUsd.toLocaleString()}
+📊 **24h Volume**: ${safeVolume24h.toLocaleString()}
+🔄 **24h Transactions**: Buys: ${txns24h.buys || 0}, Sells: ${txns24h.sells || 0}
+
+📋 **Market Data**:
+💎 **FDV**: ${safeFdv.toLocaleString()}
+🏛️ **Market Cap**: ${safeMarketCap.toLocaleString()}
+📅 **Pair Created**: ${createdAt}
+
+🪙 **Base Token**: ${baseToken?.name || 'Unknown'} (${baseToken?.symbol || 'Unknown'})
+📍 **Base Address**: ${baseToken?.address || 'Unknown'}
+🪙 **Quote Token**: ${quoteToken?.name || 'Unknown'} (${quoteToken?.symbol || 'Unknown'})
+📍 **Quote Address**: ${quoteToken?.address || 'Unknown'}
+    `,
+    liquidityUsd: safeLiquidityUsd,
+    buys: txns24h.buys || 0,
+    sells: txns24h.sells || 0,
+    volume24h: safeVolume24h,
+    priceChange24h: safePriceChange24h,
+    chainId: chainId || 'unknown',
+    dexId: dexId || 'unknown',
+    pairAddress: pairAddress || 'unknown',
+    priceUsd: priceUsd || '0',
+    fdv: safeFdv,
+    marketCap: safeMarketCap,
+    dexscreenerUrl: url || '',
+    pairCreatedAt: safePairCreatedAt,
+    baseToken: {
+      address: baseToken?.address || '',
+      name: baseToken?.name || '',
+      symbol: baseToken?.symbol || ''
+    },
+    quoteToken: {
+      address: quoteToken?.address || '',
+      name: quoteToken?.name || '',
+      symbol: quoteToken?.symbol || ''
+    }
+  };
 };
 
 export const getTokenInfoTool = createTool({
   id: "getTokenInfoTool",
-  description: "Fetch token pair stats using DexScreener API. Accepts either a token address (0x...) or a pair address.",
+  description: "Fetch comprehensive token pair stats using DexScreener API. Works with any token address, pair address, or token symbol from any supported chain (Ethereum, Solana, BSC, Polygon, Arbitrum, etc.). Just copy the address from DexScreener and paste it here!",
   inputSchema: z.object({
-    pairId: z.string().describe("DexScreener token pair address, token address, or pair ID"),
+    pairId: z.string().describe("Token address, pair address, or token symbol (e.g., 0x123..., EPjFW..., or WETH)"),
+    chain: z.string().optional().describe("Optional chain hint: ethereum, solana, bsc, polygon, arbitrum, optimism, avalanche, etc.")
   }),
   outputSchema: z.object({
     summary: z.string(),
@@ -122,9 +242,15 @@ export const getTokenInfoTool = createTool({
     buys: z.number(),
     sells: z.number(),
     volume24h: z.number(),
+    priceChange24h: z.number(),
     chainId: z.string(),
     dexId: z.string(),
     pairAddress: z.string(),
+    priceUsd: z.string(),
+    fdv: z.number(),
+    marketCap: z.number(),
+    dexscreenerUrl: z.string(),
+    pairCreatedAt: z.number(),
     baseToken: z.object({
       address: z.string(),
       name: z.string(),
@@ -137,13 +263,13 @@ export const getTokenInfoTool = createTool({
     })
   }),
   execute: async ({ context }) => {
-    return await getTokenInfo(context.pairId);
+    return await getTokenInfo(context.pairId, context.chain);
   },
 });
 
-// Alternative function if you need to search by multiple parameters
-export const getTokenInfoByAddress = async (tokenAddress: string, chainId?: string) => {
-  const url = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
+// Search function for finding tokens by symbol
+export const searchTokensBySymbol = async (symbol: string, chainId?: string) => {
+  const url = `https://api.dexscreener.com/latest/dex/search/?q=${symbol}`;
   
   try {
     const res = await fetch(url);
@@ -155,40 +281,59 @@ export const getTokenInfoByAddress = async (tokenAddress: string, chainId?: stri
     const data = await res.json();
     
     if (!data.pairs || data.pairs.length === 0) {
-      throw new Error("No pairs found for the given token address");
+      throw new Error(`No pairs found for symbol: ${symbol}`);
     }
 
     // Filter by chain if specified
     let pairs = data.pairs;
     if (chainId) {
-      pairs = pairs.filter((pair: any) => pair.chainId === chainId);
+      const normalizedChain = normalizeChain(chainId);
+      pairs = pairs.filter((pair: any) => 
+        pair.chainId === normalizedChain || 
+        pair.chainId === chainId.toLowerCase()
+      );
     }
 
     if (pairs.length === 0) {
-      throw new Error(`No pairs found for token on chain ${chainId}`);
+      throw new Error(`No pairs found for symbol ${symbol} on chain ${chainId}`);
     }
 
-    // Return the pair with highest liquidity
+    // Return pairs sorted by liquidity
     return pairs.sort((a: any, b: any) => 
       (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
-    )[0];
+    );
   } catch (error) {
-    console.error('Error fetching token info by address:', error);
+    console.error('Error searching tokens by symbol:', error);
     throw error;
   }
 };
 
-// Helper function to get popular tokens for testing
-export const getPopularTokens = () => {
+// Helper function with test addresses for different chains
+export const getTestAddresses = () => {
   return {
     ethereum: {
-      weth: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
-      usdc: "0xa0b86a33e6fb06c29292f4a4f13af86d7b6a1b9d",
-      usdt: "0xdac17f958d2ee523a2206206994597c13d831ec7",
-      dai: "0x6b175474e89094c44da98b954eedeac495271d0f",
-      // Popular pairs
-      weth_usdc_pair: "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640",
-      weth_usdt_pair: "0x4e68ccd3e89f51c3074ca5072bbac773960dfa36"
+      // Token addresses
+      weth: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+      usdc: "0xA0b86a33E6FB06c29292F4a4f13af86d7B6a1b9d",
+      usdt: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+      // Pair addresses
+      weth_usdc: "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640",
+      weth_usdt: "0x4e68ccd3e89f51c3074ca5072bbac773960dfa36"
+    },
+    solana: {
+      // Token addresses
+      sol: "So11111111111111111111111111111111111111112",
+      usdc: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      usdt: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+      // Example pair (SOL/USDC on Raydium)
+      sol_usdc: "58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2"
+    },
+    bsc: {
+      // Token addresses
+      wbnb: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",
+      usdt: "0x55d398326f99059fF775485246999027B3197955",
+      busd: "0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56"
     }
   };
 };
+
