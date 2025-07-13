@@ -42,3 +42,103 @@ Analyzes token data like liquidity, volume, and trade patterns to detect potenti
 ├── Dockerfile
 ├── package.json
 └── pnpm-lock.yaml
+
+## 🛠️ Setup & Run Locally
+
+1. Clone Repo 
+
+```bash 
+git clone https://github.com/yourusername/defisniper-agent.git
+cd defisniper-agent
+
+2. Install Dependencies
+
+```bash 
+pnpm install 
+
+3. Configure Environment 
+
+```bash
+cp .env.example .env
+
+4. Pull Ollama Model
+
+```bash
+ollama serve
+ollama pull qwen2.5:1.5b
+
+5. Run Agent
+
+```bash
+pnpm run dev
+
+Visit: http://localhost:8080
+
+## 🐳 Docker
+
+Build Docker Image
+
+```bash 
+docker build -t signet939/defisniper:latest .
+
+Run Docker Image
+
+```bash
+docker run -p 8080:8080 --env-file .env.docker signet939/defisniper:latest
+
+
+## 📡 Nosana Deployment
+
+Nosana Job File
+nosana_mastra.json
+
+```bash
+
+{
+  "ops": [
+    {
+      "id": "agents",
+      "args": {
+        "gpu": true,
+        "image": "docker.io/signet939/defisniper:latest",
+        "expose": [
+          {
+            "port": 8080
+          }
+        ],
+        "entrypoint": [
+          "/bin/sh"
+        ]
+      },
+      "type": "container/run"
+    }
+  ],
+  "meta": {
+    "trigger": "dashboard",
+    "system_requirements": {
+      "required_vram": 4
+    }
+  },
+  "type": "container",
+  "version": "0.1"
+}
+
+
+Deploy via CLI
+
+```bash
+nosana job post --file nosana_mastra.json --market nvidia-3060 --timeout 30
+
+
+## 🎥 Demo & Submission
+
+- 📹 [Demo Video](https://drive.google.com/drive/folders/1JmVv1FwKfw1BGs_SIZOlSiLULbcWRWu3?usp=sharing)  
+- 🚀 [Nosana Deployment](https://4z58z29jxcuh8gbjsaksuwjchvtxlraky7zgqzafbaul.node.k8s.prd.nos.ci/)  
+- 📣 [X Post](https://x.com/whatever_ankit/status/1944496021134004333)
+
+
+
+
+
+
+
